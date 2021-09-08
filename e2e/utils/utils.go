@@ -158,7 +158,7 @@ func AnalyzePods(client kubectl.Client, namespace string, cachedLogger logger.Lo
 }
 
 func startPortForwarding(config *latest.Config, generatedConfig *generated.Config, client kubectl.Client, log logger.Logger) ([]*portforward.PortForwarder, error) {
-	if config.Dev == nil {
+	if (&config.Dev == &latest.DevConfig{}) {
 		return nil, nil
 	}
 
@@ -184,19 +184,12 @@ func startForwarding(portForwarding *latest.PortForwardingConfig, generatedConfi
 			imageSelector = []string{imageConfigCache.ImageName + ":" + imageConfigCache.Tag}
 		}
 	}
+	_ = imageSelector
 
-	selector, err := targetselector.NewTargetSelector(config, client, &targetselector.SelectorParameter{
-		ConfigParameter: targetselector.ConfigParameter{
-			Namespace:     portForwarding.Namespace,
-			LabelSelector: portForwarding.LabelSelector,
-		},
-	}, false, imageSelector)
-	if err != nil {
-		return nil, errors.Errorf("Error creating target selector: %v", err)
-	}
-
+	selector := targetselector.NewTargetSelector(client)
+	var ctx context.Context
 	log.StartWait("Port-Forwarding: Waiting for containers to start...")
-	pod, err := selector.GetPod(log)
+	pod, err := selector.SelectSinglePod(ctx, targetselector.Options{}, log)
 	log.StopWait()
 	if err != nil {
 		return nil, errors.Errorf("%s: %s", message.SelectorErrorPod, err.Error())
@@ -219,7 +212,7 @@ func startForwarding(portForwarding *latest.PortForwardingConfig, generatedConfi
 		}
 
 		open, _ := port.Check(*value.LocalPort)
-		if open == false {
+		if !open {
 			log.Warnf("Seems like port %d is already in use. Is another application using that port?", *value.LocalPort)
 		}
 
@@ -541,7 +534,7 @@ func IsFileOrFolderNotExist(path string) error {
 func IsFileOrFolderExistRemotely(f factory.Factory, ec *cmd.EnterCmd, lsDir string, fileOrDirToCheck string) error {
 	done := Capture()
 
-	err := ec.Run(f, nil, nil, []string{"ls", lsDir})
+	err := ec.Run(f, nil, []string{"ls", lsDir})
 	if err != nil {
 		return err
 	}
@@ -553,7 +546,7 @@ func IsFileOrFolderExistRemotely(f factory.Factory, ec *cmd.EnterCmd, lsDir stri
 
 	capturedOutput = strings.TrimSpace(capturedOutput)
 
-	if strings.Index(capturedOutput, fileOrDirToCheck) == -1 {
+	if !strings.Contains(capturedOutput, fileOrDirToCheck) {
 		return errors.Errorf("file '%s' should have been uploaded to remote", fileOrDirToCheck)
 	}
 
